@@ -34,6 +34,8 @@ typedef struct instruction
     char reg_j[100];
     char reg_k[100];
     double cycle=0;
+    double rs=0;
+    bool executing=false;
 } instruction;
 
 typedef struct memory
@@ -51,7 +53,7 @@ typedef struct reservation_station
     double data_j;
     int tag_k=0;
     double data_k;
-    
+    bool busy=false;
 } reservation_station;
 
 void header(int n);
@@ -68,7 +70,7 @@ int main() {
     int multCycles = 3;
     int diviCycles = 3;
     int loadCycles = 3;
-    const int addReservationStations = 3;
+    const int addReservationStations = 2;
     const int mulReservationStations = 2;
     const int numRegisters = 5;
     // add or delete entries depending on value of numRegisters
@@ -94,18 +96,22 @@ int main() {
     reservation_station add_reserv_stat[addReservationStations];
     reservation_station mul_reserv_stat[mulReservationStations];
     
-    for (int j=0; j < addReservationStations; j++)
+    int j;
+    for (j=0; j < addReservationStations; j++)
     {
-        add_reserv_stat[j].num = j;
+        add_reserv_stat[j].num = j + 1;
     }
     
     for (int k=0; k < mulReservationStations; k++)
     {
-        mul_reserv_stat[k].num = k;
+        mul_reserv_stat[k].num = j + k;
     }
 
     // initialize program variables
-    int lineCount, completedInstr, issuedInstr, clockCycles  = 0;
+    int lineCount = 0;
+    int completedInstr = 0;
+    int issuedInstr = 0;
+    int clockCycles = 0;
     
     // read in instruction list from text file
     FILE *fp;
@@ -148,19 +154,107 @@ int main() {
     fclose(fp);
     
     // main simulation loop
+    bool issueSuccessful = false;
     while (completedInstr < lineCount)
     {
-        // issue instruction 0...then 1...then n..etc. (& increment instruction cycle)
-        // increment clock cycle count
-        // check for:
-        // adding to reservation station
-        // increment instruction cycle only if data is available
+        // COMPLETING INSTRUCTIONS
+        for (int m=0; m < issuedInstr; m++) {
+            // check for completed instructions
+            if (instruction_list[m].executing == true) {
+                if (strcmp(instruction_list[m].type, "ADDD")) {
+                    if (instruction_list[m].cycle == addCycles) {
+                        printf("Instruction complete");
+                    }
+                } else if (strcmp(instruction_list[m].type, "LD")) {
+                    if (instruction_list[m].cycle == loadCycles) {
+                        printf("Instruction complete");
+                    }
+                } else if (strcmp(instruction_list[m].type, "SUBD")) {
+                    if (instruction_list[m].cycle == subCycles) {
+                        printf("Instruction complete");
+                    }
+                } else if (strcmp(instruction_list[m].type, "MULTD")) {
+                    if (instruction_list[m].cycle == subCycles) {
+                            printf("Instruction complete");
+                    }
+                } else {
+                    if (instruction_list[m].cycle == diviCycles) {
+                        printf("Instruction complete");
+                    }
+                }
+            }
+        }
+                
         // broadcast result of reservation station & remove instruction from reservation station
+        
+        // ISSUING INSTRUCTIONS
+        if (issuedInstr < lineCount) {
+            // issue instruction 0...then 1...then n..etc. (& increment instruction cycle)
+            if (strcmp(instruction_list[issuedInstr].type, "ADDD") || strcmp(instruction_list[issuedInstr].type, "SUBD")) {
+                // adding to reservation station
+                for (int l=0; l < addReservationStations; l++) {
+                    if (issueSuccessful == false) {
+                        if (add_reserv_stat[l].busy == false) {
+                            // add_reserv_stat[l].data_j, add_reserv_stat[l].tag_j = get_data_from_memory
+                            // add_reserv_stat[l].data_k, add_reserv_stat[l].tag_k = get_data_from_memory
+                            add_reserv_stat[l].busy = true;
+                            instruction_list[issuedInstr].rs = add_reserv_stat[l].num;
+                            instruction_list[issuedInstr].cycle = 1;
+                            issueSuccessful = true;
+                            if (add_reserv_stat[l].tag_j == 0 and add_reserv_stat[l].tag_k == 0) {
+                                instruction_list[issuedInstr].executing = true;
+                            }
+                        }
+                    }
+                }
+            }
+            else if (strcmp(instruction_list[issuedInstr].type, "LD")) {
+                     
+            }
+            else {
+                     
+            }
+        }
+
+        // EXECUTING INSTRUCTIONS
+        for (int m=0; m < issuedInstr; m++) {
+            // increment instruction cycle only if data is available
+            if (instruction_list[m].executing == true) {
+                instruction_list[m].cycle += 1;
+            }
+            else {
+                // call put_data_in_rs for missing data (r_j, r_k or both) (and therefore get_data_from_memory)
+            }
+        }
+        
+            
+        // increment counter things
+        if (issueSuccessful) {
+            issuedInstr += 1;
+            issueSuccessful = false;
+        }
+        clockCycles += 1;
+        //temporary
+        completedInstr += 1;
     }
-    
-    while
+
     return 0;
 }
+
+
+// helper functions
+// get_data_from_memory
+// inputs: register number (RO, R2, etc)
+// outputs: data (if available), tag, index number (for later)
+// int data, int tag get_data_from_memory(
+// broadcast_data
+// inputs: tag, data
+// check reservation stations and memory for tag
+// outputs: memory[index number] = data, reset memory[index number] tag; same with reservation stations
+// put_data_in_rs
+// inputs: reservation station struct, number of reservation stations
+// outputs: issue successful
+
 
 // print functions
 void header(int n)
@@ -222,3 +316,4 @@ template<typename T> void printRegisterStatus(T t, const int& width)
     printElement("F12", 8);
     cout << endl << endl;
 }
+    
