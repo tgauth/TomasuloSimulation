@@ -1,15 +1,17 @@
 //
 //  main.cpp
 //  this program implements the tomasulo algorithm
-//  the assumptions are listed at the beginning of the main function
-//  the assumptions may be configured, as necessary
+//  the assumed variables are listed at the beginning of the main function
+//  they may be configured, as necessary
 //  the expected format of the input text file is as follows:
 //  <instruction type> <store register> <register j (value if load)> <register k>
 //  <instruction types>: LD, SD, MULTD, DIVD, ADDD, SUBD
 //  <store register>: [R0, Rn] where n is the number of registers (configured in assumptions)
+//  Note: the program takes advantage of strncmp with 2 characters to find the correct register,
+//  so if the number of registers is too large, the program may not execute correctly
 //  <register j>: same as <store register> or int if load
 //  <register k>: same as <store register>
-//  note that for simplicity, and ability to verify correct output,
+//  Note that for simplicity, and ability to verify correct output,
 //  load does not take an offset and register for a memory address to retrieve a value from,
 //  load is followed by the register and the value to load into the register
 //  similarly, store is followed by the source register and the destination register
@@ -35,58 +37,57 @@ using namespace std;
 
 typedef struct instruction
 {
-    double num;
     char type[100];
     char dest_reg[100];
     char reg_j[100];
     char reg_k[100];
-    double cycle=0;
+    double num;
     double rs=0;
-    bool executing=false;
-    bool completing=false;
-    bool writing=false;
     double issue=-1;
     double completion=-1;
     double written=-1;
     int result;
     int load=0;
+    bool completing=false;
+    bool writing=false;
 } instruction;
 
 typedef struct memory
 {
     char name[2];
-    bool busy=false;
-    int tag=0;
     double data;
+    int tag=0;
+    bool busy=false;
 } memory;
 
 typedef struct reservation_station
 {
-    double num;
-    int tag_j=0;
-    double data_j=NULL;
-    int tag_k=0;
-    double data_k=NULL;
-    bool busy=false;
-    int instr=-1;
     char name[100]="NONE";
+    double num;
+    double data_j=NULL;
+    double data_k=NULL;
+    double result;
+    int tag_j=0;
+    int tag_k=0;
+    int instr=-1;
     int cycle_count=0;
     int cycles_required=-999;
     bool executing=false;
-    double result;
+    bool busy=false;
+
 } reservation_station;
 
 typedef struct load_store_rs
 {
+    char name[100]="NONE";
     double num;
-    int tag=0;
-    bool busy=false;
     double address=NULL;
     int instr=-1;
-    char name[100]="NONE";
+    int tag=0;
     int cycle_count=0;
     int cycles_required=-999;
     bool executing=false;
+    bool busy=false;
 } load_store_rs;
 
 void header(int n);
@@ -98,10 +99,11 @@ template<typename T> void printStationStatus(T t, const int& width);
 template<typename T> void printRegisterStatus(T t, const int& width);
 
 int main() {
-    // ASSUMPTIONS
+    // ==================== ASSUMPTIONS ====================
     int addCycles = 2;
     int subCycles = 2;
-    int multCycles = 10;
+    //int multCycles = 10;
+    int multCycles = 3;
     int diviCycles = 40;
     int loadCycles = 3;
     int storeCycles = 3;
@@ -109,18 +111,18 @@ int main() {
     const int mulReservationStations = 2;
     const int loadReservationStations = 2;
     const int storeReservationStations = 2;
-    const int numRegisters = 7;
+    const int maxInstructions = 16;
+    const int numRegisters = 6;
     // add or delete entries depending on value of numRegisters
-    float dataRegisters[numRegisters] = {6, 3.5, 10, 0, 7.8, 2, 1};
-    const int maxInstructions = 12;
-    //char* filename = "raw.txt";
+    float dataRegisters[numRegisters] = {6, 3.5, 10, 0, 7.8, 2};
+    char* filename = "raw.txt";
     //char* filename = "waw.txt";
-    // char* filename = "war.txt";
-    //char* filename = "sd.txt";
-    //char* filename = "ld.txt";
-    char* filename = "long.txt";
+    //char* filename = "war.txt";
+    //char* filename = "sdld.txt";
+    //char* filename = "stall.txt";
+    //char* filename = "long.txt";
     
-    // STRUCTURE INITIALIZATION
+    // ==================== STRUCTURE INITIALIZATION ====================
     instruction instruction_list[maxInstructions];
     memory  data_registers[numRegisters];
     
@@ -142,6 +144,7 @@ int main() {
     }
     
     for (int k=0; k < mulReservationStations; k++) {
+        // each reservation station needs a unique number
         mul_reserv_stat[k].num = j + k + 1;
     }
 
@@ -156,14 +159,18 @@ int main() {
         store_reserv_stat[i].num = addReservationStations + mulReservationStations + loadReservationStations + i + 1;
     }
     
-    // VARIABLE INITIALIZATION
+    // ==================== VARIABLE INITIALIZATION ====================
     int lineCount = 0;
     int completedInstr = 0;
     int issuedInstr = 0;
     int writtenInstr = 0;
     int clockCycles = 0;
+    int completed_rs = -1;
+    double cdb_data = 0;
+    bool issueSuccessful = false;
+    bool cdb_busy = false;
     
-    // READ IN INSTRUCTIONS
+    // ==================== READ IN INSTRUCTIONS ====================
     FILE *fp;
     char mystring[MAXCHAR];
 
@@ -208,15 +215,11 @@ int main() {
     }
     fclose(fp);
     
-    // MAIN SIMULATION LOOP
-    bool issueSuccessful = false;
-    bool cdb_busy = false;
-    int completed_rs = -1;
-    double cdb_data = 0;
+    // ==================== MAIN SIMULATION LOOP ====================
+    
     while (writtenInstr < lineCount)
     {
-        // WRITING INSTRUCTIONS
-        // broadcast result of reservation station & remove instruction from reservation station
+        // ================== WRITING INSTRUCTIONS ==================
         if (completed_rs != -1) {
             // broadcast_data
             for (int i=0; i < addReservationStations; i++) {
@@ -320,9 +323,9 @@ int main() {
         }
     
         
-        // ISSUING INSTRUCTIONS
+        // ================== ISSUING INSTRUCTIONS ==================
         if (issuedInstr < lineCount) {
-            // issue instruction 0...then 1...then n..etc. (& increment instruction cycle)
+            // issue instruction 0...then 1...then n..etc. (& increment instruction cycle if successful)
             if (strcmp(instruction_list[issuedInstr].type, "ADDD") == 0 || strcmp(instruction_list[issuedInstr].type, "SUBD") == 0) {
                 // adding to reservation station
                 for (int l=0; l < addReservationStations; l++) {
@@ -342,10 +345,8 @@ int main() {
                                 if (strncmp(instruction_list[issuedInstr].reg_k, data_registers[i].name, 2) == 0) {
                                     if (data_registers[i].tag == 0) {
                                         add_reserv_stat[l].data_k = data_registers[i].data;
-                                        //cout << data_registers[i].data << endl;
                                     }
                                     else {
-                                        //cout << data_registers[i].data << endl;
                                         add_reserv_stat[l].tag_k = data_registers[i].tag;
                                     }
                                 }
@@ -356,12 +357,10 @@ int main() {
                             }
                             add_reserv_stat[l].busy = true;
                             instruction_list[issuedInstr].rs = add_reserv_stat[l].num;
-                            instruction_list[issuedInstr].cycle = 0;
                             add_reserv_stat[l].cycle_count = 0;
                             instruction_list[issuedInstr].issue = clockCycles+1;
                             issueSuccessful = true;
                             if (add_reserv_stat[l].tag_j == 0 and add_reserv_stat[l].tag_k == 0) {
-                                instruction_list[issuedInstr].executing = true;
                                 add_reserv_stat[l].executing = true;
                             }
                             if (strcmp(instruction_list[issuedInstr].type, "ADDD") == 0) {
@@ -392,11 +391,9 @@ int main() {
                             load_reserv_stat[l].busy = true;
                             load_reserv_stat[l].cycles_required = loadCycles;
                             instruction_list[issuedInstr].rs = load_reserv_stat[l].num;
-                            instruction_list[issuedInstr].cycle = 0;
                             load_reserv_stat[l].cycle_count = 0;
                             instruction_list[issuedInstr].issue = clockCycles+1;
                             issueSuccessful = true;
-                            instruction_list[issuedInstr].executing = true;
                             load_reserv_stat[l].executing = true;
                         }
                     }
@@ -423,12 +420,10 @@ int main() {
                             store_reserv_stat[l].busy = true;
                             store_reserv_stat[l].cycles_required = storeCycles;
                             instruction_list[issuedInstr].rs = store_reserv_stat[l].num;
-                            instruction_list[issuedInstr].cycle = 0;
                             store_reserv_stat[l].cycle_count = 0;
                             instruction_list[issuedInstr].issue = clockCycles+1;
                             issueSuccessful = true;
                             if (store_reserv_stat[l].tag == 0) {
-                                instruction_list[issuedInstr].executing = true;
                                 store_reserv_stat[l].executing = true;
                             }
                         }
@@ -466,12 +461,10 @@ int main() {
                             }
                             mul_reserv_stat[l].busy = true;
                             instruction_list[issuedInstr].rs = mul_reserv_stat[l].num;
-                            instruction_list[issuedInstr].cycle = 0;
                             mul_reserv_stat[l].cycle_count = 0;
                             instruction_list[issuedInstr].issue = clockCycles+1;
                             issueSuccessful = true;
                             if (mul_reserv_stat[l].tag_j == 0 and mul_reserv_stat[l].tag_k == 0) {
-                                instruction_list[issuedInstr].executing = true;
                                 mul_reserv_stat[l].executing = true;
                             }
                             if (strcmp(instruction_list[issuedInstr].type, "MULTD") == 0) {
@@ -491,7 +484,8 @@ int main() {
         }
 
         
-        // COMPLETING AND EXECUTING INSTRUCTION CHECK ORDERED BY INCREASING RESERVATION STATION NUMBER
+        // ================== COMPLETING AND EXECUTING INSTRUCTION CHECK ==================
+        // ordered by increasing reservation station number
         cdb_busy = false;
         for (int i=0; i < addReservationStations; i++){
             // completing instructions
@@ -603,29 +597,19 @@ int main() {
                 cout << "cycle count" << store_reserv_stat[i].cycle_count << endl;
                 cout << "cycles required" << store_reserv_stat[i].cycles_required << endl;
                 // only increment if not yet reached
-                //if (store_reserv_stat[i].cycle_count < store_reserv_stat[i].cycles_required) {
-                store_reserv_stat[i].cycle_count += 1;
-                //}
+                if (store_reserv_stat[i].cycle_count < store_reserv_stat[i].cycles_required) {
+                    store_reserv_stat[i].cycle_count += 1;
+                }
             }
         }
-        
-        // INCREMENT COUNTERS
-        if (issueSuccessful) {
-            issuedInstr += 1;
-            issueSuccessful = false;
-        }
-        clockCycles += 1;
-        //temporary
-        //completedInstr += 1;
-        //writtenInstr += 1;
     
-        // PRINTING TO CONSOLE
+        // ================== PRINTING TO CONSOLE ==================
         printInstructionStatus("test", 6);
         for (int j=0; j < lineCount; j++) {
             printElement(instruction_list[j].type, 15);
             if (strcmp(instruction_list[j].type, "LD") == 0) {
                 printElement(instruction_list[j].load, 6);
-                printElement(" ", 6);
+                printElement(" ", 8);
             }
             else {
                 printElement(instruction_list[j].reg_j[0], 0);
@@ -737,13 +721,20 @@ int main() {
             }
         }
         cout << endl << endl;
+        
+        // ================== INCREMENT COUNTERS ==================
+        if (issueSuccessful) {
+            issuedInstr += 1;
+            issueSuccessful = false;
+        }
+        clockCycles += 1;
     }
     
     return 0;
 }
 
 
-// print functions
+// ================== PRINT FUNCTIONS ==================
 void header(int n)
 {
     cout << "Cycle " << n << endl << endl;
@@ -810,8 +801,7 @@ template<typename T> void printRegisterStatus(T t, const int& width)
     printElement("R4", 8);
     printElement("R6", 8);
     printElement("R8", 8);
-    //printElement("F10", 8);
-    //printElement("F12", 8);
+    printElement("R10", 8);
     cout << endl;
 }
     
